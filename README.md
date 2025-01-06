@@ -1,7 +1,7 @@
 # ESPHome Oil Tank Level Monitor
 
 This project uses ESPHome to configure an ESP32 device for monitoring the oil level in a tank. The device utilizes a VL53L0X distance sensor to measure the distance to the oil surface and calculates the remaining oil volume, daily consumption, and estimated time to depletion. Integration with Home Assistant provides real-time data visualization and tracking.
-
+![installation.jpg](images/installation.jpg)
 ## Features
 
 - **Real-Time Monitoring**: Tracks oil height, volume, daily consumption, and estimated days until empty.
