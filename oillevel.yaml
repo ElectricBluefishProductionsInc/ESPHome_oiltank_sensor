@@ -1,0 +1,214 @@
+esphome:
+  name: oiltank
+  friendly_name: OilTank
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: INFO
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  ap:
+    ssid: "Oiltank Fallback Hotspot"
+    password: "oil1234_2025."
+
+captive_portal:
+
+# Enable i2c for the VL53L0X sensor
+i2c:
+  sda: 4  # SDA pin
+  scl: 5  # SCL pin
+  scan: true
+
+globals:
+  - id: tank_height
+    type: float
+    initial_value: '27.6'  # Tank height in inches
+  - id: tank_width
+    type: float
+    initial_value: '44.0'  # Tank width in inches
+  - id: tank_length
+    type: float
+    initial_value: '60.0'  # Tank depth (length) in inches
+  - id: deviation_correction
+    type: float
+    initial_value: '0.293'  # Deviation correction in meters
+  - id: daily_consumption
+    type: float
+    initial_value: '0.0'  # Total consumption in the last 24 hours
+  - id: last_volume
+    type: float
+    initial_value: '0.0'  # Previous volume reading
+  - id: hours_elapsed
+    type: int
+    initial_value: '0'  # Number of hours elapsed in the tracking period
+
+interval:
+  - interval: 1h
+    then:
+      - lambda: |-
+          float current_volume = id(estimated_gallons).state;
+          float previous_volume = id(last_volume);
+          float delta = previous_volume - current_volume;
+
+          if (delta > 0) {  // Only count if consumption occurred
+            id(daily_consumption) += delta;
+            id(hours_elapsed) += 1;
+          }
+
+          id(last_volume) = current_volume;  // Update the last volume
+          ESP_LOGD("Oil Consumption", "Hour: %d, Delta: %.2f gallons, Total Consumption: %.2f gallons",
+                   id(hours_elapsed), delta, id(daily_consumption));
+
+sensor:
+  - platform: vl53l0x
+    name: "Raw Oil Distance (m)"
+    address: 0x29
+    id: raw_oil_distance
+    update_interval: 5s
+    accuracy_decimals: 2
+    unit_of_measurement: "m"
+    icon: "mdi:oil-level"
+    filters:
+      - calibrate_linear:
+          - 0.0 -> 0.0
+          - 1.0 -> 1.0
+      - lambda: |-
+          static float estimate = 0.0;
+          static float estimate_error = 1.0;
+          static float process_noise = 0.03;  // Adjust for your sensor
+          static float measurement_noise = 0.1;  // Adjust for your sensor
+          
+          float kalman_gain = estimate_error / (estimate_error + measurement_noise);
+          estimate = estimate + kalman_gain * (x - estimate);
+          estimate_error = (1.0 - kalman_gain) * estimate_error + fabs(estimate - x) * process_noise;
+          
+          return estimate;
+
+  - platform: template
+    name: "Oil Height (Inches)"
+    id: oil_height_inches
+    unit_of_measurement: "in"
+    accuracy_decimals: 1
+    lambda: |-
+      float raw_distance_m = id(raw_oil_distance).state;  // Raw sensor distance in meters
+      float correction_m = id(deviation_correction);      // Deviation correction in meters
+
+      // Correct the raw distance and calculate oil height
+      float corrected_distance_m = raw_distance_m + correction_m;  // Add correction
+      float oil_height_in = id(tank_height) - (corrected_distance_m * 39.3701);  // Convert to inches
+
+      // Ensure the oil height is within valid bounds
+      if (oil_height_in < 0) oil_height_in = 0;
+      if (oil_height_in > id(tank_height)) oil_height_in = id(tank_height);
+
+      ESP_LOGD("Tank", "Raw Distance: %.3f m, Corrected Oil Height: %.2f in", raw_distance_m, oil_height_in);
+
+      return oil_height_in;
+
+  - platform: template
+    name: "Estimated Gallons Left"
+    id: estimated_gallons
+    unit_of_measurement: "gallons"
+    accuracy_decimals: 2
+    lambda: |-
+      float raw_distance_m = id(raw_oil_distance).state;  // Raw sensor distance in meters
+      float correction_m = id(deviation_correction);      // Deviation correction in meters
+
+      // Correct the raw distance and convert to depth in inches
+      float corrected_distance_m = raw_distance_m + correction_m;  // Add correction
+      float depth_in = id(tank_height) - (corrected_distance_m * 39.3701);  // Convert to inches
+
+      float width = id(tank_width);
+      float height = id(tank_height);
+      float length = id(tank_length);
+
+      // Check if depth exceeds tank height
+      if (depth_in > height) {
+        ESP_LOGE("Tank", "Depth exceeds tank height!");
+        return -1.0;
+      }
+
+      // Calculate the fuel volume
+      float radius = width / 2.0;
+      float volume_cubic_inches = 0.0;
+
+      if (depth_in <= radius) {
+        // Partially filled semicircles
+        float segment_area = 
+            radius * radius * acos((radius - depth_in) / radius) -
+            (radius - depth_in) * sqrt(2 * radius * depth_in - depth_in * depth_in);
+        volume_cubic_inches = 2 * segment_area * length;
+      } else if (depth_in <= height) {
+        // Fully filled semicircles and partially filled rectangular section
+        float semicircle_area = M_PI * radius * radius / 2.0;  // Full semicircle area
+        float rectangle_area = (depth_in - radius) * width;   // Rectangular section
+        volume_cubic_inches = (2 * semicircle_area + rectangle_area) * length;
+      }
+
+      // Convert cubic inches to gallons (1 cubic inch = 0.004329 gallons)
+      float volume_gallons = volume_cubic_inches * 0.004329;
+
+      ESP_LOGD("Tank", "Raw Distance: %.3f m, Corrected Depth: %.2f in, Volume: %.2f gallons", raw_distance_m, depth_in, volume_gallons);
+
+      return volume_gallons;
+
+  - platform: template
+    name: "Daily Consumption Rate"
+    id: daily_consumption_rate
+    unit_of_measurement: "gallons/day"
+    accuracy_decimals: 2
+    lambda: |-
+      if (id(hours_elapsed) > 0) {
+        return (id(daily_consumption) / id(hours_elapsed)) * 24.0;  // Average rate projected over 24 hours
+      } else {
+        return 0.0;  // Default to 0 until data is available
+      }
+    icon: "mdi:chart-line"
+
+  - platform: template
+    name: "Days to Empty"
+    id: days_to_empty
+    unit_of_measurement: "days"
+    accuracy_decimals: 1
+    lambda: |-
+      float current_volume = id(estimated_gallons).state;
+      float rate = id(daily_consumption_rate).state;  // Daily consumption rate
+
+      if (rate > 0) {
+        return current_volume / rate;
+      } else {
+        return 0.0;  // Default to 0 if rate is 0
+      }
+    icon: "mdi:calendar-clock"
+
+number:
+  - platform: template
+    name: "Deviation Correction"
+    id: deviation_correction_field
+    unit_of_measurement: "m"
+    icon: "mdi:tune"
+    min_value: -1.0  # Allow corrections up to -1 meter
+    max_value: 1.0   # Allow corrections up to +1 meter
+    step: 0.001      # Adjustment step
+    initial_value: 0.293
+    optimistic: true
+    set_action:
+      - lambda: |-
+          id(deviation_correction) = x; // Update the global deviation correction value
+          ESP_LOGD("DEBUG", "Deviation Correction Updated to: %.6f m", x);
