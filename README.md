@@ -28,7 +28,9 @@ Allows manual adjustment of deviation correction via Home Assistant.
 ## Hardware Requirements
 
 - **ESP32-C3 DevKitM-1**
-- **VL53L0X Distance Sensor**
+    https://a.aliexpress.com/_mtii2Ax
+  - **VL53L0X Distance Sensor**
+    http://t.ly/2mWMY
 - Oil tank dimensions (customizable in the YAML file).
 
 ## Installation Instructions
