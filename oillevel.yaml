@@ -31,8 +31,8 @@ captive_portal:
 
 # Enable i2c for the VL53L0X sensor
 i2c:
-  sda: 4  # SDA pin
-  scl: 5  # SCL pin
+  sda: 4
+  scl: 5
   scan: true
 
 globals:
@@ -48,32 +48,58 @@ globals:
   - id: deviation_correction
     type: float
     initial_value: '0.293'  # Deviation correction in meters
-  - id: daily_consumption
+  - id: oil_height_values
+    type: std::vector<float>
+    initial_value: "[]"  # Stores up to 24 hourly oil height values
+  - id: valid_consumptions
+    type: std::vector<float>
+    initial_value: "[]"  # Stores valid hourly consumption values
+  - id: total_daily_consumption
     type: float
-    initial_value: '0.0'  # Total consumption in the last 24 hours
-  - id: last_volume
-    type: float
-    initial_value: '0.0'  # Previous volume reading
-  - id: hours_elapsed
-    type: int
-    initial_value: '0'  # Number of hours elapsed in the tracking period
+    initial_value: "0.0"  # Average valid daily consumption in gallons
 
-interval:
-  - interval: 1h
-    then:
-      - lambda: |-
-          float current_volume = id(estimated_gallons).state;
-          float previous_volume = id(last_volume);
-          float delta = previous_volume - current_volume;
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+    on_time:
+      - seconds: 0
+        minutes: 0
+        then:
+          - lambda: |-
+              float current_height = id(oil_height_inches).state;
 
-          if (delta > 0) {  // Only count if consumption occurred
-            id(daily_consumption) += delta;
-            id(hours_elapsed) += 1;
-          }
+              // Add current height to the list
+              id(oil_height_values).push_back(current_height);
 
-          id(last_volume) = current_volume;  // Update the last volume
-          ESP_LOGD("Oil Consumption", "Hour: %d, Delta: %.2f gallons, Total Consumption: %.2f gallons",
-                   id(hours_elapsed), delta, id(daily_consumption));
+              // Remove the oldest value if more than 24 entries
+              if (id(oil_height_values).size() > 24) {
+                id(oil_height_values).erase(id(oil_height_values).begin());
+              }
+
+              // Calculate hourly consumption values
+              id(valid_consumptions).clear();
+              for (size_t i = 1; i < id(oil_height_values).size(); ++i) {
+                float consumption = id(oil_height_values)[i - 1] - id(oil_height_values)[i];
+
+                // Filter out NaN, negative values, and outliers (> 8 gallons/day)
+                if (!isnan(consumption) && consumption >= 0.0 && consumption <= 8.0 / 24.0) {
+                  id(valid_consumptions).push_back(consumption);
+                }
+              }
+
+              // Calculate average daily consumption
+              if (id(valid_consumptions).size() > 0) {
+                float sum = 0.0;
+                for (auto value : id(valid_consumptions)) {
+                  sum += value;
+                }
+                id(total_daily_consumption) = sum * 24.0 / id(valid_consumptions).size();  // Project daily rate
+              } else {
+                id(total_daily_consumption) = 0.0;  // No valid data
+              }
+
+              ESP_LOGD("Daily Consumption", "Valid Data Points: %d, Projected Daily Consumption: %.2f gallons",
+                       id(valid_consumptions).size(), id(total_daily_consumption));
 
 sensor:
   - platform: vl53l0x
@@ -84,6 +110,7 @@ sensor:
     accuracy_decimals: 2
     unit_of_measurement: "m"
     icon: "mdi:oil-level"
+    internal: true
     filters:
       - calibrate_linear:
           - 0.0 -> 0.0
@@ -93,11 +120,11 @@ sensor:
           static float estimate_error = 1.0;
           static float process_noise = 0.03;  // Adjust for your sensor
           static float measurement_noise = 0.1;  // Adjust for your sensor
-          
+
           float kalman_gain = estimate_error / (estimate_error + measurement_noise);
           estimate = estimate + kalman_gain * (x - estimate);
           estimate_error = (1.0 - kalman_gain) * estimate_error + fabs(estimate - x) * process_noise;
-          
+
           return estimate;
 
   - platform: template
@@ -174,11 +201,7 @@ sensor:
     unit_of_measurement: "gallons/day"
     accuracy_decimals: 2
     lambda: |-
-      if (id(hours_elapsed) > 0) {
-        return (id(daily_consumption) / id(hours_elapsed)) * 24.0;  // Average rate projected over 24 hours
-      } else {
-        return 0.0;  // Default to 0 until data is available
-      }
+      return id(total_daily_consumption);
     icon: "mdi:chart-line"
 
   - platform: template
