@@ -47,7 +47,7 @@ globals:
     initial_value: "60.0"  # Tank depth (length) in inches
   - id: deviation_correction
     type: float
-    initial_value: "0.293"  # Deviation correction in meters
+    initial_value: "0.257"  # Deviation correction in meters
   - id: total_daily_consumption
     type: float
     initial_value: "0.0"  # Average valid daily consumption in gallons
@@ -134,7 +134,7 @@ sensor:
     name: "Oil Height (Inches)"
     id: oil_height_inches
     unit_of_measurement: "in"
-    accuracy_decimals: 1
+    accuracy_decimals: 2
     lambda: |-
       float raw_distance_m = id(raw_oil_distance).state;  // Raw sensor distance in meters
       float correction_m = id(deviation_correction);      // Deviation correction in meters
@@ -245,7 +245,7 @@ number:
     min_value: -1.0  # Allow corrections up to -1 meter
     max_value: 1.0   # Allow corrections up to +1 meter
     step: 0.001      # Adjustment step
-    initial_value: 0.293
+    initial_value: 0.257
     optimistic: true
     set_action:
       - lambda: |-
