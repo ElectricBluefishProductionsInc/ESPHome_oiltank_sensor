@@ -220,6 +220,18 @@ sensor:
       }
     icon: "mdi:calendar-clock"
 
+switch:
+  - platform: template
+    name: "Reboot Device"
+    icon: "mdi:restart"
+    turn_on_action:
+      - logger.log: "Manual reboot triggered from Home Assistant."
+      - delay: 1s
+      - homeassistant.service:
+          service: esphome.restart
+          data:
+            entity_id: esphome.oiltank
+
 number:
   - platform: template
     name: "Deviation Correction"
