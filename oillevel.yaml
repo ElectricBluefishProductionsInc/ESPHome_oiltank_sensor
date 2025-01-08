@@ -38,22 +38,22 @@ i2c:
 globals:
   - id: tank_height
     type: float
-    initial_value: '27.6'  # Tank height in inches
+    initial_value: "27.6"  # Tank height in inches
   - id: tank_width
     type: float
-    initial_value: '44.0'  # Tank width in inches
+    initial_value: "44.0"  # Tank width in inches
   - id: tank_length
     type: float
-    initial_value: '60.0'  # Tank depth (length) in inches
+    initial_value: "60.0"  # Tank depth (length) in inches
   - id: deviation_correction
     type: float
-    initial_value: '0.293'  # Deviation correction in meters
+    initial_value: "0.293"  # Deviation correction in meters
   - id: total_daily_consumption
     type: float
-    initial_value: '0.0'  # Average valid daily consumption in gallons
+    initial_value: "0.0"  # Average valid daily consumption in gallons
   - id: previous_height
     type: float
-    initial_value: '0.0'  # Store the last oil height for comparison
+    initial_value: "0.0"  # Store the last oil height for comparison
 
 time:
   - platform: homeassistant
@@ -63,43 +63,46 @@ time:
         minutes: 0
         then:
           - lambda: |-
-              static std::deque<float> oil_height_values;  // Use deque for efficient removal
-              static std::vector<float> valid_consumptions;
+              static std::array<float, 24> oil_height_values = {0.0};
+              static std::array<float, 24> valid_consumptions = {0.0};
 
               float current_height = id(oil_height_inches).state;
 
               // Add current height to the list
-              oil_height_values.push_back(current_height);
-
-              // Remove the oldest value if more than 24 entries
-              if (oil_height_values.size() > 24) {
-                oil_height_values.pop_front();
+              for (int i = oil_height_values.size() - 1; i > 0; i--) {
+                oil_height_values[i] = oil_height_values[i - 1];
               }
+              oil_height_values[0] = current_height;
 
               // Calculate hourly consumption values
-              valid_consumptions.clear();
-              for (size_t i = 1; i < oil_height_values.size(); ++i) {
+              for (int i = 1; i < oil_height_values.size(); i++) {
                 float consumption = oil_height_values[i - 1] - oil_height_values[i];
 
                 // Filter out NaN, negative values, and outliers (> 8 gallons/day)
                 if (!isnan(consumption) && consumption >= 0.0 && consumption <= 8.0 / 24.0) {
-                  valid_consumptions.push_back(consumption);
+                  valid_consumptions[i - 1] = consumption;
+                } else {
+                  valid_consumptions[i - 1] = 0.0;
                 }
               }
 
               // Calculate average daily consumption
-              if (valid_consumptions.size() > 0) {
-                float sum = 0.0;
-                for (auto value : valid_consumptions) {
+              float sum = 0.0;
+              int count = 0;
+              for (auto value : valid_consumptions) {
+                if (value > 0.0) {
                   sum += value;
+                  count++;
                 }
-                id(total_daily_consumption) = sum * 24.0 / valid_consumptions.size();  // Project daily rate
+              }
+              if (count > 0) {
+                id(total_daily_consumption) = sum * 24.0 / count;  // Project daily rate
               } else {
                 id(total_daily_consumption) = 0.0;  // No valid data
               }
 
               ESP_LOGD("Daily Consumption", "Valid Data Points: %d, Projected Daily Consumption: %.2f gallons",
-                       valid_consumptions.size(), id(total_daily_consumption));
+                       count, id(total_daily_consumption));
 
 sensor:
   - platform: vl53l0x
@@ -222,15 +225,16 @@ sensor:
 
 switch:
   - platform: template
-    name: "Reboot Device"
-    icon: "mdi:restart"
+    name: "Reset Saved Data"
+    id: reset_saved_data
+    icon: "mdi:trash-can-outline"
     turn_on_action:
-      - logger.log: "Manual reboot triggered from Home Assistant."
+      - logger.log: "Resetting saved data."
+      - lambda: |-
+          id(total_daily_consumption) = 0.0;  // Reset total daily consumption
+          ESP_LOGD("Reset", "All saved data has been reset.");
       - delay: 1s
-      - homeassistant.service:
-          service: esphome.restart
-          data:
-            entity_id: esphome.oiltank
+      - switch.turn_off: reset_saved_data
 
 number:
   - platform: template
