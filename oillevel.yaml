@@ -118,10 +118,14 @@ sensor:
       - lambda: |-
           static bool filtering_enabled = true;
 
-          if (x < 0.3) {
-            filtering_enabled = false;
-          } else if (x > 2.0) {
-            filtering_enabled = true;
+          // Thresholds in meters
+          const float lower_threshold = 0.00762;  // 0.3 inches
+          const float upper_threshold = 0.0381;  // 1.5 inches
+
+          if (x < lower_threshold) {
+            filtering_enabled = false;  // Disable filtering
+          } else if (x > upper_threshold) {
+            filtering_enabled = true;  // Enable filtering
           }
 
           if (filtering_enabled) {
