@@ -47,7 +47,7 @@ globals:
     initial_value: "60.0"  # Tank depth (length) in inches
   - id: deviation_correction
     type: float
-    initial_value: "0.255"  # Deviation correction in meters
+    initial_value: "0.256"  # Deviation correction in meters
   - id: total_daily_consumption
     type: float
     initial_value: "0.0"  # Average valid daily consumption in gallons
@@ -260,7 +260,7 @@ number:
     min_value: -1.0  # Allow corrections up to -1 meter
     max_value: 1.0   # Allow corrections up to +1 meter
     step: 0.001      # Adjustment step
-    initial_value: 0.255 # 0.257 higher number lowers inches
+    initial_value: 0.256 # 0.257 higher number lowers inches
     optimistic: true
     set_action:
       - lambda: |-
