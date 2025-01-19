@@ -9,15 +9,15 @@ esp32:
 
 # Enable logging
 logger:
-  level: DEBUG
+  level: INFO
 
 # Enable Home Assistant API
 api:
   encryption:
-    key: "BO0JPn8R3DrJqntlSIjWSbxuGJWlse439BFT1+g8R40="
+    key: !secret api_key
 
 ota:
-  password: "bc3608273b2c31ee7dfcc2097c8a9cfa"
+  password: !secret ota_password
 
 wifi:
   ssid: 6}9rNeV:C2AZqx1Z-2
