@@ -9,23 +9,23 @@ esp32:
 
 # Enable logging
 logger:
-  level: INFO
+  level: DEBUG
 
 # Enable Home Assistant API
 api:
   encryption:
-    key: !secret api_key
+    key: "BO0JPn8R3DrJqntlSIjWSbxuGJWlse439BFT1+g8R40="
 
 ota:
-  password: !secret ota_password
+  password: "bc3608273b2c31ee7dfcc2097c8a9cfa"
 
 wifi:
-  ssid: !secret wifi_ssid
+  ssid: 6}9rNeV:C2AZqx1Z-2
   password: !secret wifi_password
 
   ap:
     ssid: "Oiltank Fallback Hotspot"
-    password: "oil1234_2025."
+    password: "yMcTRdTM2tT7"
 
 captive_portal:
 
@@ -115,20 +115,31 @@ sensor:
     icon: "mdi:oil-level"
     internal: true
     filters:
-      - calibrate_linear:
-          - 0.0 -> 0.0
-          - 1.0 -> 1.0
       - lambda: |-
-          static float estimate = 0.0;
-          static float estimate_error = 1.0;
-          static float process_noise = 0.03;  // Adjust for your sensor
-          static float measurement_noise = 0.1;  // Adjust for your sensor
+          static bool filtering_enabled = true;
 
-          float kalman_gain = estimate_error / (estimate_error + measurement_noise);
-          estimate = estimate + kalman_gain * (x - estimate);
-          estimate_error = (1.0 - kalman_gain) * estimate_error + fabs(estimate - x) * process_noise;
+          if (x < 0.3) {
+            filtering_enabled = false;
+          } else if (x > 2.0) {
+            filtering_enabled = true;
+          }
 
-          return estimate;
+          if (filtering_enabled) {
+            // Apply Kalman filtering
+            static float estimate = 0.0;
+            static float estimate_error = 1.0;
+            static float process_noise = 0.03;  // Adjust for your sensor
+            static float measurement_noise = 0.1;  // Adjust for your sensor
+
+            float kalman_gain = estimate_error / (estimate_error + measurement_noise);
+            estimate = estimate + kalman_gain * (x - estimate);
+            estimate_error = (1.0 - kalman_gain) * estimate_error + fabs(estimate - x) * process_noise;
+
+            return estimate;
+          } else {
+            // Return raw value when filtering is disabled
+            return x;
+          }
 
   - platform: template
     name: "Oil Height (Inches)"
