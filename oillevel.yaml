@@ -105,6 +105,9 @@ time:
                        count, id(total_daily_consumption));
 
 sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal Strength"
+    update_interval: 60s
   - platform: vl53l0x
     name: "Raw Oil Distance (m)"
     address: 0x29
